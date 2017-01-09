@@ -40,6 +40,7 @@ class Procedure(
 
   // cache args.size() for efficiency with making Activations
   var size = 0
+  // def size = args.size
 
   var code = Array[Command]()
 

@@ -8,7 +8,7 @@ package org.nlogo.compile
 import org.nlogo.nvm.Reporter
 import org.nlogo.compile.api.{ DefaultAstVisitor, Expression, Statement, ReporterApp, ReporterBlock }
 
-private class ArgumentStuffer extends DefaultAstVisitor {
+private[nlogo] class ArgumentStuffer extends DefaultAstVisitor {
   override def visitStatement(stmt:Statement) {
     stmt.command.args = gatherArgs(stmt.args)
     super.visitStatement(stmt)

@@ -21,7 +21,7 @@ import org.nlogo.core.{ AgentKind, Let, I18N, Syntax }
 
 sealed trait AnonymousProcedure {
   val formals: Array[Let]  // don't mutate please! Array for efficiency
-  val lets: List[LetBinding]
+  val binding: Binding
   val locals: Array[AnyRef]
   def checkAgentClass(context: Context, agentClassString: String): Unit = {
     val kind = context.agent.kind
@@ -41,11 +41,11 @@ sealed trait AnonymousProcedure {
     }
   }
 
-  def bindArgs(c: Context, args: Array[AnyRef]) {
+  def bindArgs(b: Binding, args: Array[AnyRef]) {
     var i = 0
     var n = formals.size
     while(i < n) {
-      c.let(formals(i), args(i))
+      b.let(formals(i), args(i))
       i += 1
     }
   }
@@ -63,7 +63,7 @@ object AnonymousProcedure {
 // To run it, we swap closed-over variables into the context,
 // bind actuals to formals, call report(), then unswap.
 
-case class AnonymousReporter(body: Reporter, formals: Array[Let], lets: List[LetBinding], locals: Array[AnyRef])
+case class AnonymousReporter(body: Reporter, formals: Array[Let], binding: Binding, locals: Array[AnyRef])
 extends AnonymousProcedure with org.nlogo.api.AnonymousReporter {
   // anonymous reporters are allowed to take more than the number of arguments (hence repeatable-type)
   val syntax =
@@ -79,15 +79,13 @@ extends AnonymousProcedure with org.nlogo.api.AnonymousReporter {
     }
   def report(context: Context, args: Array[AnyRef]): AnyRef = {
     checkAgentClass(context, syntax.agentClassString)
-    val oldLets = context.letBindings
+    // We replace this to set the arguments up correctly, the return address shouldn't matter
     val oldActivation = context.activation
-    context.activation = new Activation(oldActivation.procedure, oldActivation.parent, locals, oldActivation.returnAddress)
-    context.letBindings = lets
-    bindArgs(context, args)
+    context.activation = new Activation(oldActivation.procedure, oldActivation.parent, locals, oldActivation.returnAddress, binding)
+    bindArgs(binding, args)
     try {
       body.report(context)
     } finally {
-      context.letBindings = oldLets
       context.activation = oldActivation
     }
   }
@@ -98,7 +96,7 @@ extends AnonymousProcedure with org.nlogo.api.AnonymousReporter {
 // on the context, finally restoring some state on the way out (including a dead-agent check).
 // We may throw NonLocalExit if _report or _stop is called.
 
-case class AnonymousCommand(procedure: Procedure, formals: Array[Let], lets: List[LetBinding], locals: Array[AnyRef])
+case class AnonymousCommand(procedure: Procedure, formals: Array[Let], binding: Binding, locals: Array[AnyRef])
 extends AnonymousProcedure with org.nlogo.api.AnonymousCommand {
   val syntax =
     Syntax.commandSyntax(
@@ -114,13 +112,11 @@ extends AnonymousProcedure with org.nlogo.api.AnonymousCommand {
   }
   def perform(context: Context, args: Array[AnyRef]) {
     checkAgentClass(context, syntax.agentClassString)
-    val oldLets = context.letBindings
-    context.letBindings = lets
-    bindArgs(context, args)
+    bindArgs(binding, args)
     val oldActivation = context.activation
     // the return address doesn't matter here since we're not actually using
     // _call and _return, we're just executing the body - ST 2/4/11
-    context.activation = new Activation(procedure, oldActivation, locals, 0)
+    context.activation = new Activation(procedure, oldActivation, locals, 0, binding)
     context.ip = 0
     try context.runExclusive()
     catch {
@@ -134,7 +130,6 @@ extends AnonymousProcedure with org.nlogo.api.AnonymousCommand {
     finally {
       context.finished = context.agent.id == -1
       context.activation = oldActivation
-      context.letBindings = oldLets
     }
     // note that it's up to the caller to restore context.ip and catch NonLocalExit.  (it would be
     // nice if that handling could be encapsulated here instead, but I couldn't figure out how to do
